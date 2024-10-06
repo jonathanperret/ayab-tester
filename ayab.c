@@ -33,10 +33,8 @@
 #include "sim_elf.h"
 #include "sim_hex.h"
 #include "sim_gdb.h"
-#include "uart_pty.h"
+#include "uart_internal.h"
 #include "queue.h"
-
-#include "ayab_display.h"
 
 // Hardware interfaces
 #include "button.h"
@@ -49,7 +47,7 @@ int loglevel = LOG_ERROR;
 int gdb = 0;
 int gdb_port = 1234;
 
-uart_pty_t uart_pty;
+uart_internal_t uart_internal;
 
 machine_t machine;
 shield_t shield;
@@ -58,6 +56,8 @@ button_t encoder_beltPhase;
 avr_irq_t *adcbase_irq;
 
 extern avr_kind_t *avr_kind[];
+
+event_queue_t event_queue = {.index_read = 0, .index_write = 0};
 
 static void
 list_cores()
@@ -203,10 +203,9 @@ static void adcTriggerCB(struct avr_irq_t *irq, uint32_t value, void *param)
     }
 }
 
-static void * avr_run_thread(void * param)
+static void * ayab_run()
 {
 	int state = cpu_Running;
-    int *run = (int *)param;
     
     // Phase overlaps 16 needles/solenoids
     unsigned encoder_phase=0;
@@ -218,7 +217,7 @@ static void * avr_run_thread(void * param)
 
     char needles[200] = {'.'};
 
-	while (*run && (state != cpu_Done) && (state != cpu_Crashed))
+	while ((state != cpu_Done) && (state != cpu_Crashed))
     {
         enum event_type event;
         int value;
@@ -252,7 +251,7 @@ static void * avr_run_thread(void * param)
                     }
                     break;
                 default:
-                    fprintf(stderr, "Unexpected event from UI thread\n");
+                    fprintf(stderr, "Unexpected event\n");
                     break;
             }
 
@@ -353,6 +352,11 @@ static void * avr_run_thread(void * param)
             }
         }
 		state = avr_run(avr);
+
+        int c;
+        while((c = uart_internal_read(&uart_internal)) >= 0) {
+            fprintf(stderr, "got char: %02x\n", c);
+        }
     }
 
 	return NULL;
@@ -404,9 +408,9 @@ int main(int argc, char *argv[])
 		avr_gdb_init(avr);
 	}
 
-    // Connect uart 0 to a virtual pty
-	uart_pty_init(avr, &uart_pty);
-	uart_pty_connect(&uart_pty, '0');
+    // Connect uart 0 to an internal fifo
+	uart_internal_init(avr, &uart_internal);
+	uart_internal_connect(&uart_internal, '0');
 
     // System Hardware Description
     // mcp23008 at 0x20 & 0x21
@@ -450,11 +454,11 @@ int main(int argc, char *argv[])
 
     // Beeper not implemented (simavr lacks PWM support)
 
-    // Start display 
-    printf( "\nsimavr launching ('q' to quit, 'h'/'l' to move carriage):\n");
+    uart_internal_write(&uart_internal, 0xc0);
+    uart_internal_write(&uart_internal, 0x03);
+    uart_internal_write(&uart_internal, 0xc0);
 
-    ayab_display(argc, argv, avr_run_thread, &machine, &shield);
+    ayab_run();
 
-    uart_pty_stop(&uart_pty);
     printf( "\nsimavr done:\n");
 }

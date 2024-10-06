@@ -38,9 +38,10 @@ include ${simavr}/Makefile.common
 
 board = ${OBJ}/${target}.elf
 
-${board} : ${OBJ}/${target}.o ${OBJ}/${target}_display.o ${OBJ}/queue.o
+${board} : ${OBJ}/${target}.o 
+${board} : ${OBJ}/queue.o
 ${board} : ${OBJ}/button.o
-${board} : ${OBJ}/uart_pty.o
+${board} : ${OBJ}/uart_internal.o
 ${board} : ${OBJ}/i2c_mcp23008_virt.o
 
 ${target}: ${board}
